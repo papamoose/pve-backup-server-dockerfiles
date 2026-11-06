@@ -8,6 +8,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}/proxmox-backup-server
+
 jobs:
   docker-build:
     runs-on: ${{ matrix.runs_on }}
@@ -26,10 +34,8 @@ jobs:
       uses: actions/checkout@v3
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v2
-    - name: Set repository name
-      if: vars.DOCKERHUB_TEST_REGISTRY
+    - name: Set tag name
       run:
-        echo "REGISTRY=${{ vars.DOCKERHUB_TEST_REGISTRY }}" >> $GITHUB_ENV;
         if [[ -n "${{ github.event.pull_request.number }}" ]]; then
           echo "TAG=github-pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV;
         else
@@ -46,15 +52,14 @@ jobs:
         name: server-${{ matrix.arch }}
         path: release/
 
-    # Push to DockerHub
-    - name: Login to Docker Hub
-      if: vars.DOCKERHUB_TEST_REGISTRY
+    # Push to GHCR
+    - name: Login to GHCR
       uses: docker/login-action@v3
       with:
-        username: ${{ secrets.DOCKERHUB_TEST_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TEST_TOKEN }}
-    - name: Run dockerhub for ${{matrix.arch}}
-      if: vars.DOCKERHUB_TEST_REGISTRY
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Push image for ${{matrix.arch}}
       run: ./release.bash "${{ env.REGISTRY }}:${{ env.TAG }}" push-image
 
   client-build:
@@ -77,10 +82,8 @@ jobs:
       uses: actions/checkout@v3
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v2
-    - name: Set repository name
-      if: vars.DOCKERHUB_TEST_REGISTRY
+    - name: Set tag name
       run:
-        echo "REGISTRY=${{ vars.DOCKERHUB_TEST_REGISTRY }}" >> $GITHUB_ENV;
         if [[ -n "${{ github.event.pull_request.number }}" ]]; then
           echo "TAG=github-pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV;
         else
@@ -108,25 +111,23 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v3
-    - name: Set repository name
-      if: vars.DOCKERHUB_TEST_REGISTRY
+    - name: Set tag name
       run:
-        echo "REGISTRY=${{ vars.DOCKERHUB_TEST_REGISTRY }}" >> $GITHUB_ENV;
         if [[ -n "${{ github.event.pull_request.number }}" ]]; then
           echo "TAG=github-pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV;
         else
           echo "TAG=ref-${{ github.ref_name }}" >> $GITHUB_ENV;
         fi
-    - name: Login to Docker Hub
-      if: vars.DOCKERHUB_TEST_REGISTRY
+    - name: Login to GHCR
       uses: docker/login-action@v3
       with:
-        username: ${{ secrets.DOCKERHUB_TEST_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TEST_TOKEN }}
-    - name: Run dockerhub-manifest
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Create manifest
       run: ./release.bash "${{ env.REGISTRY }}:${{ env.TAG }}" manifest
     - name: Comment image name on PR
-      if: vars.DOCKERHUB_TEST_REGISTRY && github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request'
       env:
         REGISTRY: ${{ env.REGISTRY }}
         TAG: ${{ env.TAG }}
