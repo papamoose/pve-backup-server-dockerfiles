@@ -1,0 +1,70 @@
+on:
+  schedule:
+    # Every Monday at 04:00 UTC: rebuild to pick up updated Debian packages
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}/proxmox-backup-server
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      TAG: ${{ steps.tag.outputs.TAG }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Define TAG as VERSION-YYYYMMDD
+      id: tag
+      run: echo "TAG=$(cat VERSION)-$(date -u +%Y%m%d)" >> $GITHUB_OUTPUT
+
+  docker-build:
+    needs: [tag]
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runs_on: ubuntu-24.04-arm
+            arch: arm64
+          - runs_on: ubuntu-24.04
+            arch: amd64
+    env:
+      ARCH: ${{ matrix.arch }}
+      TAG: ${{ needs.tag.outputs.TAG }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Build image for ${{ matrix.arch }}
+      run: ./release.bash "${{ env.REGISTRY }}:${{ env.TAG }}" build-image
+    - name: Login to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Push image for ${{ matrix.arch }}
+      run: ./release.bash "${{ env.REGISTRY }}:${{ env.TAG }}" push-image
+
+  manifest:
+    needs: [tag, docker-build]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.tag.outputs.TAG }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Login to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    # Publishes VERSION-YYYYMMDD, VERSION, the shorter semver tags and latest
+    - name: Create manifest
+      run: ./release.bash "${{ env.REGISTRY }}:${{ env.TAG }}" manifest semver latest
